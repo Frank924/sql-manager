@@ -23,6 +23,8 @@ SQL Manager 是一个自托管的 SQL 脚本交付和执行台账工具。它根
 
 打开 [http://127.0.0.1:18080/](http://127.0.0.1:18080/) 进入工作区。`build.sh` 将前端和后端打包到同一个 JAR，运行时只需 Java。
 
+如需边改前端边调试后端，可按[本地开发](#本地开发)分别启动。
+
 ## 使用流程
 
 1. 在 **SQL 文件** 中上传全量基线，选择 **安装基线**。
@@ -63,9 +65,31 @@ SQL Manager 面向单人工作区，每个工作区管理一个逻辑业务库�
 
 在 **备份与设置** 中可以下载或恢复完整备份。在线备份与恢复支持最多 2,000 个 SQL 文件、16 MiB 台账 JSON，以及各 128 MiB 的 SQL 原文件总量和 ZIP 文件。离线迁移时，先停止服务，再复制整个数据目录。
 
-## 开发与验证
+## 本地开发
 
-后端使用 Java 17、Spring Boot 和 SQLite，前端使用 React 和 Vite。IDEA 可导入 [后端 Maven 项目](backend/pom.xml)，构建前端后使用 [SQL Manager 运行配置](.run/SQL%20Manager.run.xml) 调试。
+联调时用 npm 启动 Vite 前端，用 IntelliJ IDEA 运行后端。无需执行 `./scripts/build.sh`、`./scripts/start.sh` 或 `npm run build`。
+
+### 后端用 IDEA
+
+1. 用 IntelliJ IDEA 打开仓库根目录，将项目 SDK 设为 **JDK 17**。
+2. 若 Maven 项目未自动导入，右键 [backend/pom.xml](backend/pom.xml)，选择 **Add as Maven Project**。
+3. 选择共享的 [SQL Manager 运行配置](.run/SQL%20Manager.run.xml)，点击 **Run** 或 **Debug**。后端默认监听 `18080` 端口。
+
+### 前端用 npm
+
+使用 Node.js 22 或更新版本，从仓库根目录执行以下命令。首次安装依赖或锁文件变更后运行 `npm ci`。
+
+```sh
+cd ui-prototype
+npm ci
+npm run dev -- --port 4173
+```
+
+打开 Vite 在终端中显示的访问地址。Vite 会把 `/api` 请求代理到 `18080` 端口，前端改动会热更新。
+
+## 技术栈与验证
+
+后端使用 Java 17、Spring Boot 和 SQLite，前端使用 React 和 Vite。
 
 - [API 约定](docs/api-contract.md)
 - [功能验证与运行命令](docs/implementation-validation.md)
