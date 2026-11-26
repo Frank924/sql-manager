@@ -1,10 +1,10 @@
-# Prototype Instructions
+# Frontend Instructions
 
-## Selected direction
+## Design reference
 
-The user selected visual option 1 on 2026-11-24. Its local visual truth is `design/reference.png`: a light desktop SQL Manager with an environment table, persistent left navigation and a right environment inspector. Keep this visual direction when iterating.
+Use `design/reference.png` as the reference for the light desktop layout with an environment table, persistent left navigation and an environment inspector on the right.
 
-The user authorized implementation on 2026-11-24. This directory is now the application frontend; the selected mock and original prototype QA remain design references. Native SQL uploads and manual execution ledgers are the first-version scope. Do not imply that downloading a package executes SQL or advances the ledger. Preserve the distinction between application code version, confirmed SQL version, and an existing environment's manually confirmed baseline. Java backend persistence and Docker are implemented at the repository root; browser state is never the authoritative ledger.
+The frontend supports SQL file uploads and manual execution records. Do not imply that downloading a package executes SQL or advances the ledger. Preserve the distinction between application code version, confirmed SQL version, and an existing environment's manually confirmed baseline. The backend is authoritative for the ledger. Java backend persistence and Docker are implemented at the repository root.
 
 Run the local server yourself and open the preview in the browser available to this environment. Do not give the user server-start instructions when you can run it.
 

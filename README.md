@@ -1,6 +1,6 @@
 # SQL Manager
 
-SQL Manager 是一个自托管的 SQL 脚本交付和执行台账工具。它根据环境已确认的 SQL 版本，生成升级到目标版本所需的脚本包。执行人按清单运行 SQL，并在台账中登记结果。
+SQL Manager 是一个自托管的 SQL 脚本交付和执行台账工具。它根据各环境的 SQL 执行进度生成升级到目标版本所需的脚本包。执行人按清单运行 SQL，并在台账中登记结果。
 
 ![SQL Manager 环境台账与首次使用引导](ui-prototype/design/implementation-ready.png)
 
@@ -68,4 +68,4 @@ SQL Manager 面向单人工作区，每个工作区管理一个逻辑业务库�
 后端使用 Java 17、Spring Boot 和 SQLite，前端使用 React 和 Vite。IDEA 可导入 [后端 Maven 项目](backend/pom.xml)，构建前端后使用 [SQL Manager 运行配置](.run/SQL%20Manager.run.xml) 调试。
 
 - [API 约定](docs/api-contract.md)
-- [集成验收与复现命令](docs/implementation-validation.md)
+- [功能验证与运行命令](docs/implementation-validation.md)

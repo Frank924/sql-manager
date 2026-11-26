@@ -1,9 +1,16 @@
 # SQL Manager 前端
 
-此目录由已确认的方案 1 原型演进为正式前端，使用真实后端 API。完整运行方式、持久化和 Docker 说明见仓库根目录 README.md。
+本目录包含 SQL Manager 的 React 和 Vite 前端。功能概览、运行方式和 Docker 部署见 [项目 README](../README.md)。
 
-开发预览：`npm run dev -- --port 4173`，`/api` 代理至 `http://127.0.0.1:8080`。
+## 本地开发
 
-`npm run build` 生成 `dist/client`，由后端 JAR 提供同源静态资源；`npm test` 检查前端状态与差集规则。
+启动后端后，从本目录启动 Vite。
 
-`design/` 与 `design-qa.md` 记录原型阶段视觉证据，不代表当前产品数据。正式运行从空工作区开始，无内置示例 SQL 或环境。
+```sh
+npm ci
+npm run dev -- --port 4173
+```
+
+Vite 将 `/api` 请求代理到 `http://127.0.0.1:18080`。`npm run build` 将静态文件输出到 `dist/client/`，供后端打包到 JAR。`npm test` 验证前端状态与版本差集规则。
+
+相关文档包括 [API 约定](../docs/api-contract.md) 和 [界面与交互验证](design-qa.md)。
