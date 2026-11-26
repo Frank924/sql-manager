@@ -20,9 +20,6 @@ public class OriginFilter extends OncePerRequestFilter {
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain) throws ServletException, IOException {
-        if (!Set.of("localhost", "127.0.0.1", "::1", "[::1]").contains(request.getServerName().toLowerCase())) {
-            reject(response, "仅允许通过本机地址访问 SQL Manager"); return;
-        }
         if (request.getRequestURI().startsWith("/api/")) response.setHeader("Cache-Control", "no-store");
         String origin = request.getHeader("Origin");
         if (request.getRequestURI().startsWith("/api/") && Set.of("POST", "PUT", "PATCH", "DELETE").contains(request.getMethod()) && origin != null && !sameOrigin(origin, request)) {

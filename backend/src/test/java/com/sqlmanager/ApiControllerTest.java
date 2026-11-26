@@ -52,14 +52,23 @@ class ApiControllerTest {
         assertEquals(1, store.snapshot().environments.size());
     }
 
-    @Test void rejectsForeignOriginAndHostButAllowsSameOriginDevelopmentProxy() throws Exception {
+    @Test void rejectsForeignOriginButAllowsSameOriginDevelopmentProxy() throws Exception {
         api.perform(post("/api/environments").header("Origin", "https://foreign.example").header("If-Match", "0").contentType(MediaType.APPLICATION_JSON).content(ENVIRONMENT))
                 .andExpect(status().isForbidden()).andExpect(jsonPath("$.message").isString());
-        api.perform(get("/api/state").with(request -> { request.setServerName("rebind.example"); return request; }))
-                .andExpect(status().isForbidden()).andExpect(header().string("Cache-Control", "no-store"));
         api.perform(post("/api/environments").with(request -> { request.setServerName("localhost"); request.setServerPort(4173); return request; })
                         .header("Origin", "http://localhost:4173").header("If-Match", "0").contentType(MediaType.APPLICATION_JSON).content(ENVIRONMENT))
                 .andExpect(status().isOk()).andExpect(header().doesNotExist("Access-Control-Allow-Origin"));
+    }
+
+    @Test void allowsServerIpAndHostnameWithSameOriginWrites() throws Exception {
+        String server = "http://192.0.2.10:18080";
+        api.perform(get(server + "/api/state"))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"));
+        api.perform(get("http://sql-manager.example.test:18080/api/state"))
+                .andExpect(status().isOk());
+        api.perform(post(server + "/api/environments").header("Origin", server).header("If-Match", "0")
+                        .contentType(MediaType.APPLICATION_JSON).content(ENVIRONMENT))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.state.revision").value(1));
     }
 
     @Test void multipartUploadReturnsOriginalBytesAndReportsInvalidFiles() throws Exception {

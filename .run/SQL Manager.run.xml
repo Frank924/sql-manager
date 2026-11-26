@@ -2,7 +2,6 @@
   <configuration default="false" name="SQL Manager" type="Application" factoryName="Application">
     <envs>
       <env name="DATA_DIR" value="$PROJECT_DIR$/data" />
-      <env name="SERVER_ADDRESS" value="127.0.0.1" />
       <env name="SERVER_PORT" value="18080" />
     </envs>
     <option name="MAIN_CLASS_NAME" value="com.sqlmanager.SqlManagerApplication" />

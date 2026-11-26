@@ -11,7 +11,7 @@ Every mutation has optimistic concurrency via `If-Match: <state.revision>`; stal
 - POST `/api/scripts` multipart `file`, `description`, `db=business`, `type=baseline|increment` (10 MiB, UTF-8, preserve bytes). Returns new script ID.
 - GET `/api/scripts/{id}/content` UTF-8 text for preview.
 - GET `/api/scripts/{id}/download` original bytes with attachment filename.
-- POST `/api/releases` JSON `{id,name,previous:null|string,baseline,scriptIds,notes}`. Creates draft. First release allows user-defined semantic version and exactly one baseline file first, plus optional increments. Later releases inherit baseline and ordered published predecessors; allow zero SQL changes for code-only releases.
+- POST `/api/releases` JSON `{id,name,previous:null|string,baseline,scriptIds,notes}`. Creates draft. First release allows user-defined semantic version and one or more ordered baseline files before optional increments. `baseline` is the first baseline script ID and identifies the release chain; `scriptIds` contains every selected baseline followed by increments in execution order. Later releases inherit the full baseline and ordered published predecessors, add only increments, and allow zero SQL changes for code-only releases. Existing single-baseline releases remain compatible.
 - PUT `/api/releases/{id}` same draft fields; immutable ID.
 - POST `/api/releases/{id}/publish` `{}`. Publish only on latest published predecessor; first release has null predecessor. Freeze scripts and manifest server-side.
 - POST `/api/environments` JSON `{name,kind,codeVersion,actualDb,db:'business'}`.
@@ -23,4 +23,4 @@ Every mutation has optimistic concurrency via `If-Match: <state.revision>`; stal
 - GET `/api/backup` ZIP snapshot with state JSON + original files, produced consistently.
 - POST `/api/restore` multipart `file`, `confirmed:true`; restore only into an empty workspace, validate entries/hashes/state before replacing. Online backup/restore allows up to 2,000 SQL files, 16 MiB state JSON, and 128 MiB original content / ZIP size; larger workspaces use a stopped-service full data-directory copy.
 
-Use HTTP 400 for validation, 404 missing, 409 conflict, 413 oversized uploads; never leak stack traces. Bind loopback by default. Reject foreign Origin writes; no permissive CORS. Local development proxy `/api` to 127.0.0.1:18080. Docker maps host loopback port 18080 and persists `/data`. Single local operator; no accounts or remote sharing in V1.
+Use HTTP 400 for validation, 404 for missing resources, 409 for conflicts, and 413 for oversized uploads. Return readable errors without stack traces. The server listens on all network interfaces by default. The UI and API are served from the same origin, and browser writes from a different origin are rejected. The development server proxies `/api` to `127.0.0.1:18080`. Docker publishes port 18080 on the host and persists `/data`. The deployment controls access to the shared workspace.

@@ -290,8 +290,13 @@ public class WorkspaceService {
         if (!base.type.equals("baseline")) throw ApiException.bad("请选择基线类型的 SQL 文件");
         if (item.previous == null) {
             if (state.releases.stream().anyMatch(release -> release.status.equals("published") && !release.id.equals(item.id))) throw ApiException.bad("后续发布必须指定前一已发布版本");
-            if (item.scriptIds.isEmpty() || !item.scriptIds.get(0).equals(item.baseline)) throw ApiException.bad("首个发布必须以一个基线文件开始");
-            if (item.scriptIds.stream().map(id -> script(state, id)).filter(script -> script.type.equals("baseline")).count() != 1) throw ApiException.bad("首个发布只能包含一个基线文件");
+            if (item.scriptIds.isEmpty() || !item.scriptIds.get(0).equals(item.baseline)) throw ApiException.bad("首个发布必须以所选安装基线的第一个脚本开始");
+            boolean incrementsStarted = false;
+            for (String id : item.scriptIds) {
+                if (script(state, id).type.equals("baseline")) {
+                    if (incrementsStarted) throw ApiException.bad("安装基线脚本必须全部排在增量脚本之前");
+                } else incrementsStarted = true;
+            }
         } else {
             var parent = published(state, item.previous);
             if (compareVersions(item.id, parent.id) <= 0) throw ApiException.bad("版本号必须高于前一发布版本");
@@ -324,8 +329,8 @@ public class WorkspaceService {
             }
         }
         env.applied = new ArrayList<>(applied); env.issues = new ArrayList<>(issues);
-        env.baseline = env.baseBaseline != null ? env.baseBaseline : state.scripts.stream().filter(script -> script.type.equals("baseline") && applied.contains(script.id)).map(script -> script.id).findFirst().orElse(null);
         var latest = latestPublished(state);
+        env.baseline = env.baseBaseline != null ? env.baseBaseline : latest != null && applied.contains(latest.baseline) ? latest.baseline : null;
         if (latest != null) {
             var missing = new ArrayList<String>();
             for (String id : required(state, latest.id)) {

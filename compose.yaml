@@ -3,7 +3,7 @@ services:
     build: ./target/deploy
     image: sql-manager:1.0.0
     ports:
-      - "127.0.0.1:${SQL_MANAGER_PORT:-18080}:18080"
+      - "${SQL_MANAGER_PORT:-18080}:18080"
     volumes:
       - sql-manager-data:/data
     environment:

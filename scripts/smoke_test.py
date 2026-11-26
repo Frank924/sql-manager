@@ -246,20 +246,23 @@ def run_checks(source, restore_server):
     check(all(not client.state[key] for key in ('scripts', 'releases', 'environments', 'packages')), 'New service must start empty')
     checkpoint('空工作区启动，数据目录位于 TemporaryDirectory')
 
+    server_host = f'192.0.2.10:{urllib.parse.urlsplit(client.base).port}'
+    status, _, page = client.request('GET', '/', headers={'Host': server_host})
+    equal(status, 200, 'The packaged UI must be available at the server IP')
+    check(b'SQL Manager' in page, 'The response must contain the packaged UI')
+    status, _, body = client.request('GET', '/api/state', headers={'Host': server_host})
+    equal(status, 200, 'The API must be available at the server IP')
+    equal(json.loads(body), client.state, 'The server IP must use the same workspace')
     before_guards = copy.deepcopy(client.state)
     foreign_payload = json.dumps({'name': '外部来源不应创建', 'kind': '独立部署', 'codeVersion': '',
                                   'actualDb': 'smoke_rejected', 'db': 'business'}).encode()
     status, _, error_body = client.request('POST', '/api/environments', foreign_payload,
         {'Content-Type': 'application/json', 'If-Match': str(client.state['revision']),
-         'Origin': 'https://untrusted.example'})
+         'Host': server_host, 'Origin': 'https://untrusted.example'})
     equal(status, 403, 'Foreign-Origin writes must be rejected')
     check(json.loads(error_body).get('message'), 'Foreign-Origin rejection must return a readable message')
     equal(client.refresh(), before_guards, 'Foreign-Origin rejection must leave the workspace unchanged')
-    status, _, error_body = client.request('GET', '/api/state', headers={'Host': 'untrusted.example'})
-    equal(status, 403, 'A malicious Host must not expose local workspace data')
-    check(json.loads(error_body).get('message'), 'Host rejection must return a readable message')
-    equal(client.refresh(), before_guards, 'Host rejection must leave the workspace unchanged')
-    checkpoint('Foreign Origin 写入及恶意 Host 读取均返回 403，不改变工作区')
+    checkpoint('服务器 IP 可访问页面和 API，跨来源写入返回 403，工作区状态保持一致')
 
     baseline_bytes = b'\xef\xbb\xbf' + '-- 中文初始基线\r\nCREATE TABLE sample (id BIGINT PRIMARY KEY);\r\n'.encode('utf-8')
     baseline = client.upload('baseline.sql', baseline_bytes, 'baseline', '中文初始基线')

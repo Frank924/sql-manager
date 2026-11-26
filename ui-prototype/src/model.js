@@ -47,7 +47,7 @@ export function planBlocker(env, releases = [], target, type = 'upgrade') {
 }
 
 // Derivation is useful for verification; mutations and authoritative ledgers belong to the server.
-export function reconcileExecution(env, packages = [], scripts = []) {
+export function reconcileExecution(env, packages = [], scripts = [], releases = []) {
   const applied = new Set(env.baseApplied || []);
   const issues = new Set();
   for (const pkg of packages) {
@@ -57,7 +57,9 @@ export function reconcileExecution(env, packages = [], scripts = []) {
       if (['failed', 'partial'].includes(pkg.results?.[id])) issues.add(id);
     }
   }
-  const baseline = env.baseBaseline || scripts.find(script => script.type === 'baseline' && applied.has(script.id))?.id || null;
+  const installation = packages.find(pkg => pkg.envId === env.id && pkg.type === 'install');
+  const anchor = releases.filter(release => release.status === 'published').at(-1)?.baseline || (installation?.scriptIds || packages.filter(pkg => pkg.envId === env.id).flatMap(pkg => pkg.scriptIds || [])).find(id => scripts.some(script => script.id === id && script.type === 'baseline'));
+  const baseline = env.baseBaseline || (applied.has(anchor) ? anchor : null);
   return { ...env, applied: [...applied], issues: [...issues], baseline };
 }
 

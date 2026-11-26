@@ -144,6 +144,72 @@ class WorkspaceServiceTest {
         }
     }
 
+    @Test void multipleBaselineScriptsKeepTheirOrderThroughInstallUpgradeAndBackup() throws Exception {
+        byte[] backup;
+        String first, second, increment, env;
+        try (var fixture = new Fixture("multiple-baselines")) {
+            second = fixture.upload("结构.sql", "baseline", baselineBytes);
+            first = fixture.upload("初始化.sql", "baseline", "-- 先初始化数据库\nCREATE DATABASE sample;\n".getBytes(StandardCharsets.UTF_8));
+            increment = fixture.increment("next");
+            var initial = List.of(first, second, increment);
+            fixture.release("v1.0.0", null, first, initial);
+            assertEquals(initial, WorkspaceService.required(fixture.service.state(), "v1.0.0"));
+            assertTrue(fixture.service.state().scripts.stream().allMatch(script -> script.frozen));
+            env = fixture.environment("多基线客户");
+            String pkg = fixture.install(env, "v1.0.0");
+            assertEquals(initial, fixture.pkg(pkg).scriptIds);
+            var archive = unzip(fixture.service.packageZip(pkg));
+            var manifest = mapper.readTree(archive.get("manifest.json")).path("scripts");
+            for (int i = 0; i < initial.size(); i++) {
+                assertEquals(initial.get(i), manifest.get(i).path("id").asText());
+                assertArrayEquals(fixture.service.original(initial.get(i)).bytes(), archive.get(manifest.get(i).path("file").asText()));
+            }
+            fixture.result(pkg, Map.of(first, "success", second, "notExecuted", increment, "notExecuted"), "首个基线完成");
+            assertEquals(first, fixture.env(env).baseline, "基线锚点必须遵循清单，而非上传顺序");
+            String remaining = fixture.upgrade(env, "v1.0.0");
+            assertEquals(List.of(second, increment), fixture.pkg(remaining).scriptIds);
+            fixture.result(remaining, Map.of(second, "notExecuted", increment, "success"), "核实发现第二个基线被跳过");
+            assertTrue(fixture.env(env).issues.contains(second));
+            status(409, () -> fixture.upgrade(env, "v1.0.0"));
+            fixture.result(remaining, Map.of(second, "success", increment, "success"), "补齐基线并核对成功");
+            assertEquals(first, fixture.env(env).baseline);
+            assertTrue(fixture.env(env).issues.isEmpty());
+            fixture.release("v1.0.1", "v1.0.0", first, List.of());
+            String next = fixture.increment("later");
+            fixture.release("v1.1.0", "v1.0.1", first, List.of(next));
+            assertEquals(List.of(first, second, increment, next), WorkspaceService.required(fixture.service.state(), "v1.1.0"));
+            assertEquals(List.of(next), fixture.pkg(fixture.upgrade(env, "v1.1.0")).scriptIds);
+            String existing = fixture.environment("已具备多基线的客户");
+            fixture.service.baseline(fixture.revision(), existing, json(Map.of("version", "v1.0.0", "operator", "Frank", "note", "已核对全部基线及增量", "confirmed", true)));
+            assertEquals(initial, fixture.env(existing).baseApplied);
+            assertEquals(first, fixture.env(existing).baseline);
+            backup = fixture.service.backup();
+        }
+        try (var restored = new Fixture("multiple-baselines-restored")) {
+            restored.service.restore(0, true, new ByteArrayInputStream(backup));
+            assertEquals(first, restored.env(env).baseline);
+            assertTrue(restored.env(env).applied.containsAll(List.of(first, second, increment)));
+            assertTrue(restored.env(env).issues.isEmpty());
+            assertArrayEquals(baselineBytes, restored.service.original(second).bytes());
+        }
+    }
+
+    @Test void baselineScriptsMustBeAUniquePrefixAndLaterReleasesCannotAddBaselines() {
+        try (var fixture = new Fixture("baseline-order")) {
+            String first = fixture.upload("first.sql", "baseline", baselineBytes);
+            String second = fixture.upload("second.sql", "baseline", "-- 第二个基线\nINSERT INTO sample VALUES (1);\n".getBytes(StandardCharsets.UTF_8));
+            String increment = fixture.increment("next");
+            for (var ids : List.of(List.<String>of(), List.of(increment), List.of(second, first), List.of(first, increment, second), List.of(first, first))) {
+                status(400, () -> fixture.service.saveRelease(fixture.revision(), null, releaseBody("v1.0.0", null, first, ids)));
+            }
+            fixture.release("v1.0.0", null, first, List.of(first, second));
+            status(400, () -> fixture.service.saveRelease(fixture.revision(), null, releaseBody("v1.1.0", "v1.0.0", second, List.of(increment))));
+            status(400, () -> fixture.service.saveRelease(fixture.revision(), null, releaseBody("v1.1.0", "v1.0.0", first, List.of(first))));
+            String extra = fixture.upload("extra.sql", "baseline", "-- 新的基线\nINSERT INTO sample VALUES (2);\n".getBytes(StandardCharsets.UTF_8));
+            status(400, () -> fixture.service.saveRelease(fixture.revision(), null, releaseBody("v1.1.0", "v1.0.0", first, List.of(extra))));
+        }
+    }
+
     @Test void backupRestoresToAnEmptyWorkspaceAndRejectsInvalidArchives() throws Exception {
         byte[] backup; String base;
         try (var fixture = new Fixture("source")) {
