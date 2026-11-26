@@ -113,17 +113,16 @@ public class WorkspaceService {
 
     public StateStore.Mutation saveEnvironment(long revision, String id, JsonNode body) {
         object(body, Set.of("name", "kind", "codeVersion", "actualDb", "db"));
-        String name = text(body, "name", 100), kind = text(body, "kind", 60), actualDb = text(body, "actualDb", 64), db = text(body, "db", 30);
+        String name = text(body, "name", 100), kind = text(body, "kind", 60), actualDb = actualDatabases(text(body, "actualDb", 4000)), db = text(body, "db", 30);
         String codeVersion = optionalText(body, "codeVersion", 100);
         validateDatabase(db);
-        if (!actualDb.matches("[\\p{L}\\p{N}_$-]{1,64}")) throw ApiException.bad("实际数据库名只能包含文字、数字、下划线、短横线和美元符号");
         return store.change(revision, (state, files) -> {
             var env = id == null ? new State.Environment() : environment(state, id);
             if (state.environments.stream().anyMatch(item -> !Objects.equals(item.id, id) && item.name.equalsIgnoreCase(name))) throw ApiException.conflict("环境名称已存在");
             boolean hasRecords = !env.baseApplied.isEmpty() || !env.applied.isEmpty() || !env.issues.isEmpty() || state.packages.stream().anyMatch(pkg -> pkg.envId.equals(id));
-            if (id != null && hasRecords && (!env.actualDb.equals(actualDb) || !env.db.equals(db))) throw ApiException.conflict("已有交付或台账的数据库映射不可改写，请为另一个数据库新建环境。");
+            if (id != null && hasRecords && (!actualDatabases(env.actualDb).equals(actualDb) || !env.db.equals(db))) throw ApiException.conflict("已有交付或台账的数据库映射不可改写，请为另一个数据库新建环境。");
             if (id == null) { env.id = "ENV-" + UUID.randomUUID(); state.environments.add(env); }
-            env.name = name; env.kind = kind; env.actualDb = actualDb; env.db = db; env.codeVersion = codeVersion;
+            env.name = name; env.kind = kind; if (!hasRecords) env.actualDb = actualDb; env.db = db; env.codeVersion = codeVersion;
             return env.id;
         });
     }
@@ -396,7 +395,7 @@ public class WorkspaceService {
             }
             for (var env : state.environments) {
                 requiredText(env.id, "环境编号", 80); requiredText(env.name, "环境名称", 100); requiredText(env.kind, "环境类型", 60);
-                validateDatabase(env.db); requiredText(env.actualDb, "实际库名", 64);
+                validateDatabase(env.db); actualDatabases(env.actualDb);
                 unique(env.baseApplied, "基线脚本"); unique(env.applied, "已执行脚本"); unique(env.issues, "待核实脚本");
                 if (env.history == null || env.codeVersion == null) throw ApiException.bad("备份环境数据缺失");
                 for (String id : env.baseApplied) script(state, id);
@@ -453,6 +452,16 @@ public class WorkspaceService {
     private static State.Environment environment(State state, String id) { return state.environments.stream().filter(item -> item.id.equals(id)).findFirst().orElseThrow(() -> ApiException.missing("找不到目标环境")); }
     private static State.Delivery delivery(State state, String id) { return state.packages.stream().filter(item -> item.id.equals(id)).findFirst().orElseThrow(() -> ApiException.missing("找不到交付包")); }
     private static void validateDatabase(String db) { if (!"business".equals(db)) throw ApiException.bad("第一版仅支持 business 逻辑库"); }
+    private static String actualDatabases(String value) {
+        var names = new LinkedHashSet<String>();
+        for (String part : requiredText(value, "实际数据库名", 4000).split("[,，、\\r\\n]+")) {
+            String name = part.trim();
+            if (name.isEmpty()) continue;
+            if (!name.matches("[\\p{L}\\p{N}_$-]{1,64}")) throw ApiException.bad("每个实际数据库名须为 1 至 64 个字符，只能包含文字、数字、下划线、短横线和美元符号");
+            names.add(name);
+        }
+        return requiredText(String.join(", ", names), "实际数据库名", 4000);
+    }
     private static void validateSqlName(String name) {
         if (name == null || name.length() > 180 || !name.toLowerCase().endsWith(".sql") || name.contains("/") || name.contains("\\") || name.contains("..") || name.chars().anyMatch(Character::isISOControl)) throw ApiException.bad("请选择名称有效的 .sql 文件，文件名不能包含路径或控制字符");
     }

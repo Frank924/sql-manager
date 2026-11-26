@@ -49,7 +49,8 @@ class WorkspaceServiceTest {
     }
 
     private JsonNode json(Object value) { return mapper.valueToTree(value); }
-    private JsonNode envBody(String name) { return json(Map.of("name", name, "kind", "独立部署", "codeVersion", "v2.3.0", "actualDb", "lims-customer", "db", "business")); }
+    private JsonNode envBody(String name) { return envBody(name, "lims-customer"); }
+    private JsonNode envBody(String name, String actualDb) { return json(Map.of("name", name, "kind", "独立部署", "codeVersion", "v2.3.0", "actualDb", actualDb, "db", "business")); }
     private JsonNode releaseBody(String id, String previous, String baseline, List<String> scripts) {
         var body = new LinkedHashMap<String, Object>();
         body.put("id", id); body.put("name", "版本 " + id); body.put("previous", previous); body.put("baseline", baseline); body.put("scriptIds", scripts); body.put("notes", "发布说明");
@@ -207,6 +208,66 @@ class WorkspaceServiceTest {
             status(400, () -> fixture.service.saveRelease(fixture.revision(), null, releaseBody("v1.1.0", "v1.0.0", first, List.of(first))));
             String extra = fixture.upload("extra.sql", "baseline", "-- 新的基线\nINSERT INTO sample VALUES (2);\n".getBytes(StandardCharsets.UTF_8));
             status(400, () -> fixture.service.saveRelease(fixture.revision(), null, releaseBody("v1.1.0", "v1.0.0", first, List.of(extra))));
+        }
+    }
+
+    @Test void multipleDatabaseNamesPersistInPackagesAndBackupsWithoutChangingLedgerMappings() throws Exception {
+        byte[] backup; String env, pkg;
+        String names = "lims-cloud, lims-config, archive_" + "x".repeat(40) + ", 公共数据";
+        try (var fixture = new Fixture("multiple-databases")) {
+            env = fixture.service.saveEnvironment(0, null, envBody("多库环境", "lims-cloud")).resultId();
+            fixture.service.saveEnvironment(fixture.revision(), env, envBody("多库环境", " lims-cloud，lims-config\narchive_" + "x".repeat(40) + "、公共数据, lims-cloud, "));
+            assertEquals(names, fixture.env(env).actualDb, "数据库名应去重并保留填写顺序");
+            String base = fixture.upload("base.sql", "baseline", baselineBytes);
+            fixture.release("v1.0.0", null, base, List.of(base));
+            pkg = fixture.install(env, "v1.0.0");
+            assertEquals(names, fixture.pkg(pkg).actualDb);
+            assertEquals(names, fixture.pkg(pkg).environmentSnapshot.actualDb);
+            var archive = unzip(fixture.service.packageZip(pkg));
+            var manifest = mapper.readTree(archive.get("manifest.json"));
+            assertEquals(names, manifest.path("actualDatabase").asText());
+            assertEquals(names, manifest.path("environment").path("actualDb").asText());
+            assertTrue(new String(archive.get("执行说明.txt"), StandardCharsets.UTF_8).contains("目标数据库：" + names));
+            fixture.service.saveEnvironment(fixture.revision(), env, envBody("多库环境-更新", names.replace(", ", "\n")));
+            assertEquals(names, fixture.env(env).actualDb);
+            status(409, () -> fixture.service.saveEnvironment(fixture.revision(), env, envBody("多库环境-更新", names + ", another_db")));
+            status(409, () -> fixture.service.saveEnvironment(fixture.revision(), env, envBody("多库环境-更新", "lims-cloud")));
+            backup = fixture.service.backup();
+        }
+        try (var reopened = new Fixture("multiple-databases")) {
+            assertEquals(names, reopened.env(env).actualDb);
+            assertEquals(names, reopened.pkg(pkg).actualDb);
+        }
+        try (var restored = new Fixture("multiple-databases-restored")) {
+            restored.service.restore(0, true, new ByteArrayInputStream(backup));
+            assertEquals(names, restored.env(env).actualDb);
+            assertEquals(names, restored.pkg(pkg).environmentSnapshot.actualDb);
+            assertArrayEquals(baselineBytes, restored.service.original(restored.pkg(pkg).scriptIds.get(0)).bytes());
+        }
+    }
+
+    @Test void multipleDatabaseNamesValidateEachNameAndBothInputAndNormalizedLength() throws Exception {
+        try (var fixture = new Fixture("invalid-databases")) {
+            for (String input : List.of("", " ,，、\n ", "valid, invalid/name", "valid, invalid.name", "valid;DROP", "x".repeat(65), "x".repeat(4001), "valid, bad\u0000name")) {
+                status(400, () -> fixture.service.saveEnvironment(0, null, envBody("无效环境", input)));
+            }
+            var names = new ArrayList<String>();
+            for (int i = 0; i < 97; i++) names.add("db" + String.format("%02d", i) + "_" + "x".repeat(35));
+            String input = String.join("\n", names);
+            assertTrue(input.length() <= 4000);
+            status(400, () -> fixture.service.saveEnvironment(0, null, envBody("规范化后过长", input)));
+            assertEquals(0, fixture.revision());
+            String env = fixture.environment("单库兼容");
+            assertEquals("lims-customer", fixture.env(env).actualDb);
+            var archive = unzip(fixture.service.backup());
+            var state = mapper.readTree(archive.get("state.json"));
+            ((com.fasterxml.jackson.databind.node.ObjectNode) state.path("environments").get(0)).put("actualDb", "valid, invalid/name");
+            archive.put("state.json", mapper.writeValueAsBytes(state));
+            try (var restored = new Fixture("invalid-databases-restore")) {
+                byte[] invalidBackup = zip(archive);
+                status(400, () -> restored.service.restore(0, true, new ByteArrayInputStream(invalidBackup)));
+                assertEquals(0, restored.revision());
+            }
         }
     }
 

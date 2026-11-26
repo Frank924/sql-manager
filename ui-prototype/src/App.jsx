@@ -120,7 +120,7 @@ export function App() {
       </>}
     </main>
     {toast&&<div className="toast" role="status"><IconInfoCircle size={20}/>{toast}<button aria-label="关闭通知" className="icon-button" onClick={()=>setToast('')}><IconX size={16}/></button></div>}
-    {modal?.type==='environment'&&<EnvironmentDialog key={modal.envId||'new'} environment={activeModalEnv} onClose={closeModal} onSave={values=>saveEnvironment(values,modal.envId)}/>}
+    {modal?.type==='environment'&&<EnvironmentDialog key={modal.envId||'new'} environment={activeModalEnv} hasDeliveries={packages.some(pkg=>pkg.envId===modal.envId)} onClose={closeModal} onSave={values=>saveEnvironment(values,modal.envId)}/>}
     {modal?.type==='baseline'&&activeModalEnv&&<BaselineDialog env={activeModalEnv} releases={releases} onClose={closeModal} onSave={async values=>{await mutate(`/api/environments/${segment(activeModalEnv.id)}/baseline`,values);closeModal();notify('基线确认已保存，未执行 SQL。');}}/>}
     {modal?.type==='export'&&<ExportDialog initialEnvId={modal.envId} initialTarget={modal.target} install={modal.install} {...{environments,releases,scripts}} onClose={closeModal} onCreate={createPackage} onDownload={downloadPackage} onNavigate={id=>{closeModal();go(id);}} onDone={()=>{closeModal();go('packages');}}/>}
     {modal?.type==='result'&&activeModalPackage&&<ResultDialog key={activeModalPackage.id} pkg={activeModalPackage} scripts={activeModalPackage.files||scripts} environment={environments.find(env=>env.id===activeModalPackage.envId)} onClose={closeModal} onSave={data=>registerResult(activeModalPackage,data)}/>}
@@ -139,12 +139,22 @@ function WorkspaceSetup({scripts,releases,onNavigate,onNewEnvironment}) {
   </div></section>;
 }
 
-function EnvironmentDialog({environment,onClose,onSave}) {
+function EnvironmentDialog({environment,hasDeliveries,onClose,onSave}) {
   const [values,setValues]=useState({name:environment?.name||'',kind:environment?.kind||'独立部署',codeVersion:environment?.codeVersion||'',actualDb:environment?.actualDb||''});
   const [busy,setBusy]=useState(false);const [error,setError]=useState('');
+  const databaseLocked=!!environment&&(hasDeliveries||!!environment.baseApplied?.length||!!environment.applied?.length||!!environment.issues?.length);
   const update=(key,value)=>setValues(previous=>({...previous,[key]:value}));
-  async function submit(event){event.preventDefault();if(busy)return;setBusy(true);setError('');try{await onSave({...values,name:values.name.trim(),actualDb:values.actualDb.trim(),codeVersion:values.codeVersion.trim()});}catch(failure){setError(failure.message);}finally{setBusy(false);}}
-  return <Modal title={environment?'编辑环境信息':'新增环境'} description={environment?'代码版本单独维护，不改变 SQL 执行台账。':'登记基本信息后，再确认数据库起点。'} onClose={()=>{if(!busy)onClose();}} footer={<><button className="button secondary" disabled={busy} onClick={onClose}>取消</button><button className="button primary" type="submit" form="environment-form" disabled={busy}>{busy?'正在保存…':environment?'保存环境':'创建环境'}</button></>}><form id="environment-form" onSubmit={submit}><label className="field">环境名称<input required maxLength={80} value={values.name} onChange={event=>update('name',event.target.value)} placeholder="例如：公司测试环境"/></label><div className="form-grid"><label className="field">环境类型<Select value={values.kind} onChange={event=>update('kind',event.target.value)}>{['开发环境','测试环境','生产环境','独立部署'].map(kind=><option key={kind}>{kind}</option>)}</Select></label><label className="field">实际数据库名<input required maxLength={64} value={values.actualDb} onChange={event=>update('actualDb',event.target.value)} placeholder="实际执行 SQL 的数据库名"/></label></div><label className="field">当前运行代码版本 <span className="optional">选填</span><input maxLength={80} value={values.codeVersion} onChange={event=>update('codeVersion',event.target.value)} placeholder="例如：v1.0.0"/></label><div className="notice"><IconInfoCircle size={20}/><span>填写代码版本不会标记任何脚本为成功。实际数据库名用于交付说明，不会自动改写 SQL 内容。</span></div>{error&&<p className="form-error" role="alert">{error}</p>}</form></Modal>;
+  async function submit(event){event.preventDefault();if(busy)return;setBusy(true);setError('');try{await onSave({...values,name:values.name.trim(),actualDb:databaseLocked?environment.actualDb:values.actualDb.trim(),codeVersion:values.codeVersion.trim()});}catch(failure){setError(failure.message);}finally{setBusy(false);}}
+  return <Modal title={environment?'编辑环境信息':'新增环境'} description={environment?'代码版本单独维护，不改变 SQL 执行台账。':'登记基本信息后，再确认数据库起点。'} onClose={()=>{if(!busy)onClose();}} footer={<><button className="button secondary" disabled={busy} onClick={onClose}>取消</button><button className="button primary" type="submit" form="environment-form" disabled={busy}>{busy?'正在保存…':environment?'保存环境':'创建环境'}</button></>}>
+    <form id="environment-form" onSubmit={submit}>
+      <label className="field">环境名称<input required maxLength={80} value={values.name} onChange={event=>update('name',event.target.value)} placeholder="例如：公司测试环境"/></label>
+      <label className="field">环境类型<Select value={values.kind} onChange={event=>update('kind',event.target.value)}>{['开发环境','测试环境','生产环境','独立部署'].map(kind=><option key={kind}>{kind}</option>)}</Select></label>
+      <div className="field"><label htmlFor="environment-databases">实际数据库名</label><textarea id="environment-databases" required rows={3} maxLength={4000} readOnly={databaseLocked} aria-describedby="environment-databases-help" value={databaseLocked?environment.actualDb:values.actualDb} onChange={event=>update('actualDb',event.target.value)} placeholder={'例如：lims-cloud\nlims-config'}/><span id="environment-databases-help" className="optional">{databaseLocked?'已有交付或台账，数据库名已锁定。仍可修改环境名称、类型和代码版本。':'支持多个数据库名，用逗号、中文逗号、顿号或换行分隔，每个名称最多 64 个字符。'}</span></div>
+      <label className="field">当前运行代码版本 <span className="optional">选填</span><input maxLength={80} value={values.codeVersion} onChange={event=>update('codeVersion',event.target.value)} placeholder="例如：v1.0.0"/></label>
+      <div className="notice"><IconInfoCircle size={20}/><span>填写代码版本不会标记任何脚本为成功。数据库名列表用于交付说明，各库共用此环境的脚本执行台账。</span></div>
+      {error&&<p className="form-error" role="alert">{error}</p>}
+    </form>
+  </Modal>;
 }
 
 function BaselineDialog({env,releases,onSave,onClose}) {
@@ -179,7 +189,7 @@ function ExportDialog({initialEnvId,initialTarget,install=false,environments,rel
       <div className="export-context"><span>目标库 <strong className="mono">{env?.actualDb||'—'}</strong></span><span>已确认 SQL 版本 <strong className="mono">{confirmedVersion(env,releases)}</strong></span><Select aria-label="交付类型" value={type} onChange={event=>{setType(event.target.value);setEmptyConfirmed(false);setError('');}}><option value="upgrade">增量升级</option><option value="install">首次安装</option></Select></div>
       {blocker&&<div className="notice warning"><IconAlertCircle size={20}/><span>{blocker}</span></div>}
       <div className="section-heading"><h3>待交付脚本</h3><span>{ids.length} 个 · 按发布顺序执行</span></div><div className="table-scroll"><table className="data-table export-table"><thead><tr><th>顺序</th><th>SQL 文件</th><th>目标库</th></tr></thead><tbody>{ids.map((id,index)=>{const script=scripts.find(item=>item.id===id);return <tr key={id}><td className="mono muted">{String(index+1).padStart(2,'0')}</td><td><strong>{script?.description||id}</strong><small className="mono">{script?.name}</small></td><td className="mono">{script?.db}</td></tr>;})}</tbody></table></div>{!ids.length&&<EmptyState title="无需新增 SQL" description="该版本所需脚本均已确认完成，代码版本请单独维护。"/>}
-      {type==='install'&&<label className="check-line"><input type="checkbox" checked={emptyConfirmed} onChange={event=>setEmptyConfirmed(event.target.checked)}/><span>我已确认目标数据库是全新空库。</span></label>}
+      {type==='install'&&<label className="check-line"><input type="checkbox" checked={emptyConfirmed} onChange={event=>setEmptyConfirmed(event.target.checked)}/><span>我已确认所有目标数据库均为全新空库。</span></label>}
       <div className="notice"><IconInfoCircle size={20}/><span>生成交付包不会更新执行台账。实际数据库名写入交付说明，SQL 原文件不会被自动改写。</span></div>
     </>}{error&&<p className="form-error" role="alert">{error}</p>}
   </Modal>;

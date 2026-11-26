@@ -19,8 +19,9 @@
 .delivery-list-footer { margin-top:auto; padding:30px 0 8px; display:flex; justify-content:space-between; gap:16px; font-size:13px; color:var(--muted,#687386); }
 .result-form { display:flex; flex-direction:column; gap:20px; }
 .result-context { display:grid; grid-template-columns:1.15fr 1.3fr .8fr; gap:22px; padding:19px 22px; background:#f5f7fb; border-radius:7px; }
+.result-context > div { min-width:0; }
 .result-context-label { display:block; font-size:13px; color:var(--muted,#687386); margin-bottom:9px; }
-.result-context strong { font-size:16px; font-weight:600; }
+.result-context strong { font-size:16px; font-weight:600; overflow-wrap:anywhere; }
 .result-context small { display:block; color:var(--muted,#687386); font-size:12px; margin-top:5px; }
 .result-mono { font-family:var(--mono,'SFMono-Regular',Consolas,monospace); }
 .result-package-ref { margin:-8px 0 0; font-size:13px; color:var(--muted,#687386); }
