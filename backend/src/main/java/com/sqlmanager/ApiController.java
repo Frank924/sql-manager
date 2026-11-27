@@ -5,6 +5,7 @@ import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -62,6 +63,9 @@ public class ApiController {
     }
     @PutMapping("/environments/{id}") public StateStore.Mutation editEnvironment(@RequestHeader(value = "If-Match", required = false) String match, @PathVariable String id, @RequestBody JsonNode body) {
         return workspace.saveEnvironment(revision(match), id, body);
+    }
+    @DeleteMapping("/environments/{id}") public StateStore.Mutation deleteEnvironment(@RequestHeader(value = "If-Match", required = false) String match, @PathVariable String id, @RequestBody JsonNode body) {
+        return workspace.deleteEnvironment(revision(match), id, body);
     }
     @PostMapping("/environments/{id}/baseline") public StateStore.Mutation baseline(@RequestHeader(value = "If-Match", required = false) String match, @PathVariable String id, @RequestBody JsonNode body) {
         return workspace.baseline(revision(match), id, body);

@@ -61,6 +61,93 @@ class WorkspaceServiceTest {
         assertEquals(expected, exception.status, exception.getMessage()); return exception;
     }
 
+    @Test void deletesOnlyTheRequestedPristineEnvironmentAndPersistsAcrossRestart() {
+        Path directory = temporary.resolve("delete-environment");
+        String kept, base, pkg; long savedRevision;
+        try (var fixture = new Fixture(directory)) {
+            base = fixture.upload("base.sql", "baseline", baselineBytes);
+            fixture.release("v1.0.0", null, base, List.of(base));
+            kept = fixture.environment("保留的环境");
+            pkg = fixture.install(kept, "v1.0.0");
+            String deleted = fixture.environment("误新增环境");
+            State before = fixture.service.state();
+            status(409, () -> fixture.service.deleteEnvironment(fixture.revision() - 1, deleted, json(Map.of("confirmed", true))));
+            status(404, () -> fixture.service.deleteEnvironment(fixture.revision(), "ENV-missing", json(Map.of("confirmed", true))));
+            assertEquals(json(before), json(fixture.service.state()));
+            var result = fixture.service.deleteEnvironment(fixture.revision(), deleted, json(Map.of("confirmed", true)));
+            assertEquals(deleted, result.resultId());
+            assertEquals(before.revision + 1, result.state().revision);
+            assertEquals(List.of(kept), result.state().environments.stream().map(env -> env.id).toList());
+            assertEquals(json(before.scripts), json(result.state().scripts));
+            assertEquals(json(before.releases), json(result.state().releases));
+            assertEquals(json(before.packages), json(result.state().packages));
+            status(404, () -> fixture.service.deleteEnvironment(fixture.revision(), deleted, json(Map.of("confirmed", true))));
+            savedRevision = fixture.revision();
+        }
+        try (var reopened = new Fixture(directory)) {
+            assertEquals(savedRevision, reopened.revision());
+            assertEquals(List.of(kept), reopened.service.state().environments.stream().map(env -> env.id).toList());
+            assertEquals(kept, reopened.pkg(pkg).envId);
+            assertArrayEquals(baselineBytes, reopened.service.original(base).bytes());
+        }
+    }
+
+    @Test void deletesBaselineAndAssociatedPackagesWithoutChangingOtherRecords() {
+        Path directory = temporary.resolve("delete-recorded-environment");
+        String base, kept, keptPackage, deleted, firstPackage, secondPackage; long savedRevision; byte[] backup;
+        State expected;
+        try (var fixture = new Fixture(directory)) {
+            base = fixture.upload("base.sql", "baseline", baselineBytes);
+            fixture.release("v1.0.0", null, base, List.of(base));
+            String baselineOnly = fixture.environment("仅有基线");
+            fixture.service.baseline(fixture.revision(), baselineOnly, json(Map.of("version", "v1.0.0", "operator", "Frank", "note", "已核实", "confirmed", true)));
+            fixture.service.deleteEnvironment(fixture.revision(), baselineOnly, json(Map.of("confirmed", true)));
+            assertTrue(fixture.service.state().environments.isEmpty());
+            deleted = fixture.environment("删除的环境");
+            fixture.service.baseline(fixture.revision(), deleted, json(Map.of("version", "v1.0.0", "operator", "Frank", "note", "已核实", "confirmed", true)));
+            String increment = fixture.increment("next");
+            fixture.release("v2.0.0", "v1.0.0", base, List.of(increment));
+            firstPackage = fixture.upgrade(deleted, "v2.0.0");
+            secondPackage = fixture.upgrade(deleted, "v2.0.0");
+            fixture.result(firstPackage, Map.of(increment, "partial"), "待核实");
+            fixture.result(firstPackage, Map.of(increment, "success"), "修正后成功");
+            assertEquals(2, fixture.pkg(firstPackage).registrations.size());
+            kept = fixture.environment("保留的环境");
+            keptPackage = fixture.install(kept, "v2.0.0");
+            fixture.result(keptPackage, Map.of(base, "success", increment, "success"), "现场完成");
+            State before = fixture.service.state();
+            status(409, () -> fixture.service.deleteEnvironment(fixture.revision() - 1, deleted, json(Map.of("confirmed", true))));
+            assertEquals(json(before), json(fixture.service.state()));
+            var result = fixture.service.deleteEnvironment(fixture.revision(), deleted, json(Map.of("confirmed", true)));
+            assertEquals(deleted, result.resultId());
+            assertEquals(before.revision + 1, result.state().revision);
+            assertEquals(json(before.environments.stream().filter(env -> env.id.equals(kept)).toList()), json(result.state().environments));
+            assertEquals(json(before.packages.stream().filter(pkg -> pkg.envId.equals(kept)).toList()), json(result.state().packages));
+            assertEquals(json(before.scripts), json(result.state().scripts));
+            assertEquals(json(before.releases), json(result.state().releases));
+            status(404, () -> fixture.service.packageZip(firstPackage));
+            status(404, () -> fixture.service.packageZip(secondPackage));
+            status(404, () -> fixture.result(firstPackage, Map.of(increment, "success"), "已删除"));
+            savedRevision = fixture.revision(); expected = fixture.service.state();
+            backup = fixture.service.backup();
+        }
+        try (var reopened = new Fixture(directory)) {
+            assertEquals(savedRevision, reopened.revision());
+            assertEquals(json(expected), json(reopened.service.state()));
+            assertArrayEquals(baselineBytes, reopened.service.original(base).bytes());
+            status(404, () -> reopened.service.deleteEnvironment(reopened.revision(), deleted, json(Map.of("confirmed", true))));
+        }
+        try (var restored = new Fixture("after-deletion-restored")) {
+            restored.service.restore(0, true, new ByteArrayInputStream(backup));
+            assertEquals(json(expected.environments), json(restored.service.state().environments));
+            assertEquals(json(expected.packages), json(restored.service.state().packages));
+            assertEquals(json(expected.scripts), json(restored.service.state().scripts));
+            assertEquals(json(expected.releases), json(restored.service.state().releases));
+            assertArrayEquals(baselineBytes, restored.service.original(base).bytes());
+            assertEquals(kept, restored.pkg(keptPackage).envId);
+        }
+    }
+
     @Test void completeLifecyclePreservesOriginalsAndCorrectsResultsWithoutErasingAnotherPackage() throws Exception {
         Path directory = temporary.resolve("workspace");
         long savedRevision; String base, env, firstPackage;

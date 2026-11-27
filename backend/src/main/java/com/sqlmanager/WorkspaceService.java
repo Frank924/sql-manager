@@ -127,6 +127,17 @@ public class WorkspaceService {
         });
     }
 
+    public StateStore.Mutation deleteEnvironment(long revision, String id, JsonNode body) {
+        object(body, Set.of("confirmed"));
+        if (!booleanField(body, "confirmed")) throw ApiException.bad("请明确确认删除环境及其全部关联记录");
+        return store.change(revision, (state, files) -> {
+            var env = environment(state, id);
+            state.packages.removeIf(pkg -> pkg.envId.equals(id));
+            state.environments.remove(env);
+            return id;
+        });
+    }
+
     public StateStore.Mutation baseline(long revision, String envId, JsonNode body) {
         object(body, Set.of("version", "operator", "note", "confirmed"));
         String version = text(body, "version", 40), operator = text(body, "operator", 100), note = text(body, "note", 4000);

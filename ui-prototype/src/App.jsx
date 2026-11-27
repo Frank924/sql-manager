@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { IconDatabase, IconDeviceDesktop, IconFileText, IconStack2, IconPackage, IconSettings, IconPlus, IconCheck, IconInfoCircle, IconAlertCircle, IconDownload, IconHistory, IconMenu2, IconX, IconFolder, IconShieldCheck, IconEdit, IconRefresh, IconUpload } from '@tabler/icons-react';
+import { IconDatabase, IconDeviceDesktop, IconFileText, IconStack2, IconPackage, IconSettings, IconPlus, IconCheck, IconInfoCircle, IconAlertCircle, IconDownload, IconHistory, IconMenu2, IconX, IconFolder, IconShieldCheck, IconEdit, IconRefresh, IconUpload, IconTrash } from '@tabler/icons-react';
 import { Badge, PageHeading, SearchInput, Select, EmptyState, Modal } from './ui';
 import { requiredScriptIds, pendingScriptIds, confirmedVersion, environmentState, planBlocker, formatDateTime } from './model';
 import { apiJson, downloadApi, ApiError } from './api';
@@ -79,6 +79,10 @@ export function App() {
     const response=await mutate(id?`/api/environments/${segment(id)}`:'/api/environments',{...values,db:'business'},id?'PUT':'POST');
     setSelectedId(id || response.resultId);closeModal();notify(id?'环境信息已更新。':'环境已创建，请确认数据库起点。');
   }
+  async function deleteEnvironment(id) {
+    const response=await mutate(`/api/environments/${segment(id)}`,{confirmed:true},'DELETE');
+    setSelectedId(response.state.environments[0]?.id||'');closeModal();notify('环境及关联记录已删除。');
+  }
   const activeModalEnv = environments.find(env=>env.id===modal?.envId);
   const activeModalPackage = packages.find(pkg=>pkg.id===modal?.pkgId);
 
@@ -109,6 +113,7 @@ export function App() {
                 </>}
                 <button className="text-button history-link" onClick={()=>setModal({type:'history',envId:environment.id})}>查看执行记录</button>
                 {!!environment.issues?.length&&<button className="text-button" onClick={()=>go('packages')}>前往交付包核实登记</button>}
+                <div className="environment-delete"><button className="text-button danger-text" onClick={()=>setModal({type:'deleteEnvironment',envId:environment.id})}><IconTrash size={17}/>删除环境</button></div>
               </aside>}
             </div>
           </>}
@@ -121,6 +126,7 @@ export function App() {
     </main>
     {toast&&<div className="toast" role="status"><IconInfoCircle size={20}/>{toast}<button aria-label="关闭通知" className="icon-button" onClick={()=>setToast('')}><IconX size={16}/></button></div>}
     {modal?.type==='environment'&&<EnvironmentDialog key={modal.envId||'new'} environment={activeModalEnv} hasDeliveries={packages.some(pkg=>pkg.envId===modal.envId)} onClose={closeModal} onSave={values=>saveEnvironment(values,modal.envId)}/>}
+    {modal?.type==='deleteEnvironment'&&activeModalEnv&&<DeleteEnvironmentDialog key={activeModalEnv.id} environment={activeModalEnv} packages={packages} revision={workspace.revision} onClose={closeModal} onDelete={()=>deleteEnvironment(activeModalEnv.id)}/>}
     {modal?.type==='baseline'&&activeModalEnv&&<BaselineDialog env={activeModalEnv} releases={releases} onClose={closeModal} onSave={async values=>{await mutate(`/api/environments/${segment(activeModalEnv.id)}/baseline`,values);closeModal();notify('基线确认已保存，未执行 SQL。');}}/>}
     {modal?.type==='export'&&<ExportDialog initialEnvId={modal.envId} initialTarget={modal.target} install={modal.install} {...{environments,releases,scripts}} onClose={closeModal} onCreate={createPackage} onDownload={downloadPackage} onNavigate={id=>{closeModal();go(id);}} onDone={()=>{closeModal();go('packages');}}/>}
     {modal?.type==='result'&&activeModalPackage&&<ResultDialog key={activeModalPackage.id} pkg={activeModalPackage} scripts={activeModalPackage.files||scripts} environment={environments.find(env=>env.id===activeModalPackage.envId)} onClose={closeModal} onSave={data=>registerResult(activeModalPackage,data)}/>}
@@ -154,6 +160,29 @@ function EnvironmentDialog({environment,hasDeliveries,onClose,onSave}) {
       <div className="notice"><IconInfoCircle size={20}/><span>填写代码版本不会标记任何脚本为成功。数据库名列表用于交付说明，各库共用此环境的脚本执行台账。</span></div>
       {error&&<p className="form-error" role="alert">{error}</p>}
     </form>
+  </Modal>;
+}
+
+function DeleteEnvironmentDialog({environment,packages,revision,onDelete,onClose}) {
+  const [busy,setBusy]=useState(false);const [error,setError]=useState('');
+  const [confirmedRevision,setConfirmedRevision]=useState(null);
+  const confirmed=confirmedRevision===revision;
+  const relatedPackages=packages.filter(pkg=>pkg.envId===environment.id);
+  const registrations=relatedPackages.reduce((count,pkg)=>count+(pkg.registrations?.length||0),0);
+  async function remove(){if(busy||!confirmed)return;setBusy(true);setError('');try{await onDelete();}catch(failure){setConfirmedRevision(null);setError(failure.message);}finally{setBusy(false);}}
+  return <Modal title="删除环境" description={`${environment.name} · ${environment.actualDb}`} onClose={()=>{if(!busy)onClose();}} footer={<><button className="button secondary" autoFocus disabled={busy} onClick={onClose}>取消</button><button className="button danger" disabled={busy||!confirmed} onClick={remove}>{busy?'正在删除…':'确认删除环境及关联记录'}</button></>}>
+    <div className="notice warning"><IconAlertCircle size={20}/><span>此操作将永久删除以下记录，请核对影响范围。删除后无法恢复。</span></div>
+    <dl className="environment-delete-impact">
+      <div><dt>环境信息</dt><dd>{environment.name}（{environment.kind}）及数据库映射、代码版本</dd></div>
+      <div><dt>基线登记</dt><dd>{environment.baseline||environment.baseBaseline||'未登记'}{environment.baseVersion&&` · 接管至 ${environment.baseVersion}`}</dd></div>
+      <div><dt>执行台账</dt><dd>已确认脚本 {environment.applied?.length||0} 项，待核实 {environment.issues?.length||0} 项</dd></div>
+      <div><dt>登记历史</dt><dd>{environment.history?.length||0} 条基线确认、执行或修正记录</dd></div>
+      <div><dt>关联交付包</dt><dd>{relatedPackages.length} 个交付包，含 {registrations} 次结果登记及修正</dd></div>
+    </dl>
+    {!!relatedPackages.length&&<ul className="environment-delete-packages" aria-label="将删除的交付包">{relatedPackages.map(pkg=><li key={pkg.id}><strong className="mono">{pkg.id}</strong><span>{pkg.target} · {pkg.scriptIds.length} 个脚本 · {pkg.registrations?.length||0} 次结果登记及修正</span></li>)}</ul>}
+    <p className="helper">SQL 原文件、发布版本和其他环境记录会保留。实际数据库及已执行的 SQL 数据不受影响；已下载到本机的交付包文件不会被删除。</p>
+    <label className="check-line"><input type="checkbox" disabled={busy} checked={confirmed} onChange={event=>setConfirmedRevision(event.target.checked?revision:null)}/><span>我已了解以上影响，确认删除该环境及全部关联记录。</span></label>
+    {error&&<p className="form-error" role="alert">{error}</p>}
   </Modal>;
 }
 

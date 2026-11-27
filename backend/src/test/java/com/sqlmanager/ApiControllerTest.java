@@ -15,6 +15,7 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -50,6 +51,32 @@ class ApiControllerTest {
         api.perform(post("/api/environments").header("If-Match", "0").contentType(MediaType.APPLICATION_JSON).content(ENVIRONMENT))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.message").isString());
         assertEquals(1, store.snapshot().environments.size());
+    }
+
+    @Test void deletesEnvironmentsWithConfirmationAndRevisionAndReportsMissingResources() throws Exception {
+        var response = api.perform(post("/api/environments").header("If-Match", "0").contentType(MediaType.APPLICATION_JSON).content(ENVIRONMENT))
+                .andExpect(status().isOk()).andReturn().getResponse();
+        String id = mapper.readTree(response.getContentAsByteArray()).path("resultId").asText();
+        api.perform(delete("/api/environments/" + id).contentType(MediaType.APPLICATION_JSON).content("{\"confirmed\":true}"))
+                .andExpect(status().isBadRequest());
+        api.perform(delete("/api/environments/" + id).header("If-Match", "1")).andExpect(status().isBadRequest());
+        for (String body : new String[]{"{}", "{\"confirmed\":false}", "{\"confirmed\":\"true\"}", "{\"confirmed\":true,\"envId\":\"other\"}"}) {
+            api.perform(delete("/api/environments/" + id).header("If-Match", "1").contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").isString());
+        }
+        api.perform(delete("/api/environments/" + id).header("If-Match", "0").contentType(MediaType.APPLICATION_JSON).content("{\"confirmed\":true}"))
+                .andExpect(status().isConflict());
+        api.perform(delete("/api/environments/" + id).header("Origin", "https://foreign.example").header("If-Match", "1")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"confirmed\":true}"))
+                .andExpect(status().isForbidden());
+        assertEquals(1, store.snapshot().revision);
+        assertEquals(1, store.snapshot().environments.size());
+        api.perform(delete("/api/environments/" + id).header("If-Match", "1").contentType(MediaType.APPLICATION_JSON).content("{\"confirmed\":true}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.resultId").value(id))
+                .andExpect(jsonPath("$.state.revision").value(2)).andExpect(jsonPath("$.state.environments").isEmpty());
+        api.perform(delete("/api/environments/" + id).header("If-Match", "2").contentType(MediaType.APPLICATION_JSON).content("{\"confirmed\":true}"))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.message").isString());
+        assertEquals(2, store.snapshot().revision);
     }
 
     @Test void rejectsForeignOriginButAllowsSameOriginDevelopmentProxy() throws Exception {

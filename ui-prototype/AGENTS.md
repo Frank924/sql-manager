@@ -10,6 +10,8 @@ The first release supports selecting and ordering multiple baseline scripts. Kee
 
 Each environment accepts multiple actual database names separated by commas, Chinese commas, enumeration commas, or line breaks. Show the complete list in delivery context. These names are delivery metadata and share the environment's script ledger.
 
+The environment ledger must allow deleting any environment, including one with baseline or delivery records. Before deletion, show the affected baseline, execution ledger, history and delivery packages (including result registrations and corrections), then require explicit confirmation. Delete the environment and its associated delivery records together; retain shared SQL files, releases and other environments.
+
 Run the local server yourself and open the preview in the browser available to this environment. Do not give the user server-start instructions when you can run it.
 
 Before making substantial visual changes, use the Product Design plugin's `get-context` skill when the visual source is unclear or no longer matches the current goal. When the user gives durable prototype-specific design feedback, preferences, or decisions, record them in `AGENTS.md`.
